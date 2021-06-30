@@ -5,9 +5,57 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Elm App Template</title>
+    <style>
+        .cell {
+            background: gray;
+            border: groove 3px black;
+            height: 5em;
+            width: 5em;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            user-select: none;
+        }
+
+        .cell.open {
+            background: #c8c8c8;
+        }
+
+        .openCell-1 {
+            color: blue;
+        }
+
+        .openCell-2 {
+            color: green;
+        }
+
+        .openCell-3 {
+            color: red;
+        }
+
+        .openCell-4 {
+            color: #4b24bd;
+        }
+
+        .openCell-5 {
+            color: brown;
+        }
+
+        .openCell-6 {
+            color: cyan;
+        }
+
+        .openCell-7 {
+            color: black;
+        }
+
+        .openCell-8 {
+            color: gray;
+        }
+    </style>
 </head>
 <body>
-    <div id="app"></div>
-    <script src='main.js'></script>
+<div id="app"></div>
+<script src='main.js'></script>
 </body>
 </html>

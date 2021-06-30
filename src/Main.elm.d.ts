@@ -2,12 +2,6 @@ export namespace Elm {
     namespace Main {
         export interface App {
             ports: {
-                alert: {
-                    subscribe(callback: (data: string) => void): void
-                }
-                reply: {
-                    send(data: string): void
-                }
             };
         }
 
