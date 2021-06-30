@@ -13,22 +13,28 @@ import Time
 
 
 type Model
-    = BeforeStart
+    = BeforeStart Difficulty
     | Running
         { board : Mine.Board
         , flag : Int
         , startTime : Maybe Time.Posix
         , currentTime : Maybe Time.Posix
+        , difficulty : Difficulty
+        , selectingDifficulty : Difficulty
         }
     | Win
         { board : Mine.Board
         , startTime : Maybe Time.Posix
         , currentTime : Maybe Time.Posix
+        , difficulty : Difficulty
+        , selectingDifficulty : Difficulty
         }
     | Lose
         { board : Mine.Board
         , startTime : Maybe Time.Posix
         , currentTime : Maybe Time.Posix
+        , difficulty : Difficulty
+        , selectingDifficulty : Difficulty
         }
 
 
@@ -39,21 +45,18 @@ type Msg
     | OpenCell Mine.Position
     | FlagCell Mine.Position
     | QuickOpen Mine.Position
+    | DifficultyChanged Difficulty
     | ReTry
+
+
+type Difficulty
+    = Easy
+    | Normal
+    | Hard
 
 
 type alias Flags =
     ()
-
-
-boardSize : Int
-boardSize =
-    9
-
-
-mineNumber : Int
-mineNumber =
-    10
 
 
 subscriptions : Model -> Sub Msg
@@ -68,9 +71,13 @@ subscriptions model =
 
 init : Flags -> ( Model, Cmd Msg )
 init =
+    let
+        ( x, y ) =
+            getBoardSize Easy
+    in
     always
-        ( BeforeStart
-        , Random.generate GotMines <| generateMinePosition boardSize mineNumber
+        ( BeforeStart Easy
+        , Random.generate GotMines <| generateMinePosition x y (getMineNum Easy)
         )
 
 
@@ -79,12 +86,18 @@ update msg model =
     case msg of
         GotMines mines ->
             case model of
-                BeforeStart ->
+                BeforeStart diff ->
+                    let
+                        ( sizeX, sizeY ) =
+                            getBoardSize diff
+                    in
                     ( Running
-                        { board = Mine.makeBoard boardSize boardSize mines
+                        { board = Mine.makeBoard sizeX sizeY mines
                         , flag = 0
                         , startTime = Nothing
                         , currentTime = Nothing
+                        , difficulty = diff
+                        , selectingDifficulty = diff
                         }
                     , Cmd.none
                     )
@@ -123,6 +136,8 @@ update msg model =
                             { board = newBoard
                             , startTime = state.startTime
                             , currentTime = state.currentTime
+                            , difficulty = state.difficulty
+                            , selectingDifficulty = state.selectingDifficulty
                             }
                         , Cmd.none
                         )
@@ -142,6 +157,8 @@ update msg model =
                             { board = newBoard
                             , startTime = state.startTime
                             , currentTime = state.currentTime
+                            , difficulty = state.difficulty
+                            , selectingDifficulty = state.difficulty
                             }
                         , Cmd.none
                         )
@@ -177,6 +194,8 @@ update msg model =
                             { board = newBoard
                             , startTime = state.startTime
                             , currentTime = state.currentTime
+                            , difficulty = state.difficulty
+                            , selectingDifficulty = state.difficulty
                             }
                         , Cmd.none
                         )
@@ -185,9 +204,42 @@ update msg model =
                     ( model, Cmd.none )
 
         ReTry ->
-            ( BeforeStart
-            , Random.generate GotMines <| generateMinePosition boardSize mineNumber
-            )
+            case model of
+                BeforeStart diff ->
+                    let
+                        ( x, y ) =
+                            getBoardSize diff
+                    in
+                    ( BeforeStart diff
+                    , Random.generate GotMines <| generateMinePosition x y (getMineNum diff)
+                    )
+
+                Running s ->
+                    let
+                        ( x, y ) =
+                            getBoardSize s.selectingDifficulty
+                    in
+                    ( BeforeStart s.selectingDifficulty
+                    , Random.generate GotMines <| generateMinePosition x y (getMineNum s.selectingDifficulty)
+                    )
+
+                Win s ->
+                    let
+                        ( x, y ) =
+                            getBoardSize s.selectingDifficulty
+                    in
+                    ( BeforeStart s.selectingDifficulty
+                    , Random.generate GotMines <| generateMinePosition x y (getMineNum s.selectingDifficulty)
+                    )
+
+                Lose s ->
+                    let
+                        ( x, y ) =
+                            getBoardSize s.selectingDifficulty
+                    in
+                    ( BeforeStart s.selectingDifficulty
+                    , Random.generate GotMines <| generateMinePosition x y (getMineNum s.selectingDifficulty)
+                    )
 
         GotCurrentTime t ->
             case model of
@@ -197,71 +249,106 @@ update msg model =
                 _ ->
                     ( model, Cmd.none )
 
+        DifficultyChanged diff ->
+            case model of
+                BeforeStart _ ->
+                    ( model, Cmd.none )
+
+                Running s ->
+                    ( Running { s | selectingDifficulty = diff }, Cmd.none )
+
+                Win s ->
+                    ( Win { s | selectingDifficulty = diff }, Cmd.none )
+
+                Lose s ->
+                    ( Lose { s | selectingDifficulty = diff }, Cmd.none )
+
 
 view : Model -> Html Msg
 view model =
     let
-        b =
-            board boardSize
+        b : Difficulty -> Mine.Board -> Html Msg
+        b diff =
+            let
+                ( x, y ) =
+                    getBoardSize diff
+            in
+            board diff x y
     in
     case model of
-        BeforeStart ->
+        BeforeStart _ ->
             h1 [] [ text "before start" ]
 
         Running m ->
+            let
+                mineNumber =
+                    getMineNum m.difficulty
+            in
             div []
-                [ h1 [] [ text "minesweeper" ]
-                , p [] [ text <| "flag remaining:" ++ String.fromInt (mineNumber - m.flag) ]
+                [ h1 [] [ text "mine sweeper" ]
+                , p [] [ text <| "🏁 × " ++ String.fromInt (mineNumber - m.flag) ]
                 , p []
                     [ text <|
                         (Maybe.map2 renderTimeDiff m.startTime m.currentTime
-                            |> Maybe.map (\s -> s ++ "秒経過")
+                            |> Maybe.map (\s -> s ++ " sec.")
                             |> Maybe.withDefault ""
                         )
                     ]
-                , b m.board
+                , div []
+                    [ difficultySelector m.selectingDifficulty
+                    , button [ HE.onClick ReTry ] [ text "retry" ]
+                    ]
+                , b m.difficulty m.board
                 ]
 
         Win m ->
             div []
                 [ h1 [] [ text "you win" ]
+                , div []
+                    [ difficultySelector m.selectingDifficulty
+                    , button [ HE.onClick ReTry ] [ text "retry" ]
+                    ]
                 , p []
                     [ text <|
                         (Maybe.map2 renderTimeDiff m.startTime m.currentTime
-                            |> Maybe.map (\s -> s ++ "秒")
+                            |> Maybe.map (\s -> s ++ " sec.")
                             |> Maybe.withDefault ""
                         )
                     ]
-                , div []
-                    [ button [ HE.onClick ReTry ] [ text "retry" ]
-                    ]
-                , b m.board
+                , b m.difficulty m.board
                 ]
 
         Lose m ->
             div []
                 [ h1 [] [ text "you lose" ]
                 , div []
-                    [ button [ HE.onClick ReTry ] [ text "retry" ]
+                    [ difficultySelector m.selectingDifficulty
+                    , button [ HE.onClick ReTry ] [ text "retry" ]
                     ]
-                , b m.board
+                , b m.difficulty m.board
                 ]
 
 
-board : Int -> Mine.Board -> Html Msg
-board size b =
+board : Difficulty -> Int -> Int -> Mine.Board -> Html Msg
+board diff xsize ysize b =
     let
-        xys =
-            List.range 0 (size - 1)
+        xs =
+            List.range 0 (xsize - 1)
+
+        ys =
+            List.range 0 (ysize - 1)
 
         positions =
-            List.concatMap (\y -> List.map (\x -> ( x, y )) xys) xys
+            List.concatMap (\y -> List.map (\x -> ( x, y )) xs) ys
 
         render pos =
             Dict.get pos b |> Maybe.withDefault (Mine.Mine Mine.MOpen) |> renderCell
 
+        ( boardX, _ ) =
+            getBoardSize diff
+
         boardSizeS =
-            String.fromInt boardSize
+            String.fromInt boardX
     in
     div
         [ HA.style "display" "inline-grid"
@@ -342,16 +429,45 @@ main =
         }
 
 
-generateMinePosition : Int -> Int -> Random.Generator (List Mine.Position)
-generateMinePosition size mineNum =
+generateMinePosition : Int -> Int -> Int -> Random.Generator (List Mine.Position)
+generateMinePosition xsize ysize mineNum =
     let
-        point =
-            Random.int 0 (size - 1)
+        xpoint =
+            Random.int 0 (xsize - 1)
+
+        ypoint =
+            Random.int 0 (ysize - 1)
 
         position =
-            Random.map2 (\x y -> ( x, y )) point point
+            Random.map2 (\x y -> ( x, y )) xpoint ypoint
     in
     noOverlapRandomList position mineNum
+
+
+getBoardSize : Difficulty -> ( Int, Int )
+getBoardSize diff =
+    case diff of
+        Easy ->
+            ( 9, 9 )
+
+        Normal ->
+            ( 16, 16 )
+
+        Hard ->
+            ( 30, 16 )
+
+
+getMineNum : Difficulty -> Int
+getMineNum diff =
+    case diff of
+        Easy ->
+            10
+
+        Normal ->
+            40
+
+        Hard ->
+            99
 
 
 noOverlapRandomList : Random.Generator a -> Int -> Random.Generator (List a)
@@ -378,3 +494,32 @@ noOverlapRandomList gen length =
 onRightClick : msg -> Attribute msg
 onRightClick m =
     HE.preventDefaultOn "contextmenu" <| JD.succeed ( m, True )
+
+
+difficultySelector : Difficulty -> Html Msg
+difficultySelector diff =
+    let
+        handler : String -> Msg
+        handler s =
+            case s of
+                "easy" ->
+                    DifficultyChanged Easy
+
+                "normal" ->
+                    DifficultyChanged Normal
+
+                "hard" ->
+                    DifficultyChanged Hard
+
+                _ ->
+                    DifficultyChanged Easy
+
+        onChange : Attribute Msg
+        onChange =
+            HE.on "change" <| JD.map handler HE.targetValue
+    in
+    select [ onChange ]
+        [ option [ HA.value "easy", HA.selected <| diff == Easy ] [ text "easy" ]
+        , option [ HA.value "normal", HA.selected <| diff == Normal ] [ text "normal" ]
+        , option [ HA.value "hard", HA.selected <| diff == Hard ] [ text "hard" ]
+        ]
