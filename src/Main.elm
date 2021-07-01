@@ -8,14 +8,15 @@ import Html.Events as HE
 import Json.Decode as JD
 import Mine
 import Random
+import Set
 import Task
 import Time
 
 
 type Model
-    = BeforeStart Difficulty
-    | Running
+    = Running
         { board : Mine.Board
+        , hasRealBoard : Bool
         , flag : Int
         , startTime : Maybe Time.Posix
         , currentTime : Maybe Time.Posix
@@ -39,7 +40,7 @@ type Model
 
 
 type Msg
-    = GotMines (List Mine.Position)
+    = GotBoard Mine.Board
     | GotStartTime Time.Posix
     | GotCurrentTime Time.Posix
     | OpenCell Mine.Position
@@ -59,6 +60,23 @@ type alias Flags =
     ()
 
 
+makeInitialState : Difficulty -> Model
+makeInitialState diff =
+    let
+        ( x, y ) =
+            getBoardSize diff
+    in
+    Running
+        { board = Mine.makeFakeBoard x y
+        , hasRealBoard = False
+        , flag = getMineNum diff
+        , startTime = Nothing
+        , currentTime = Nothing
+        , difficulty = diff
+        , selectingDifficulty = diff
+        }
+
+
 subscriptions : Model -> Sub Msg
 subscriptions model =
     case model of
@@ -71,34 +89,20 @@ subscriptions model =
 
 init : Flags -> ( Model, Cmd Msg )
 init =
-    let
-        ( x, y ) =
-            getBoardSize Easy
-    in
     always
-        ( BeforeStart Easy
-        , Random.generate GotMines <| generateMinePosition x y (getMineNum Easy)
+        ( makeInitialState Easy
+        , Cmd.none
         )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        GotMines mines ->
+        GotBoard b ->
             case model of
-                BeforeStart diff ->
-                    let
-                        ( sizeX, sizeY ) =
-                            getBoardSize diff
-                    in
+                Running state ->
                     ( Running
-                        { board = Mine.makeBoard sizeX sizeY mines
-                        , flag = 0
-                        , startTime = Nothing
-                        , currentTime = Nothing
-                        , difficulty = diff
-                        , selectingDifficulty = diff
-                        }
+                        { state | board = b, hasRealBoard = True }
                     , Cmd.none
                     )
 
@@ -118,29 +122,39 @@ update msg model =
         OpenCell position ->
             case model of
                 Running state ->
-                    let
-                        ( newBoard, isOk ) =
-                            Mine.openBoard position state.board
-                    in
-                    if isOk then
-                        ( Running { state | board = newBoard }
-                        , if state.startTime == Nothing then
-                            Task.perform GotStartTime Time.now
-
-                          else
-                            Cmd.none
+                    if state.hasRealBoard == False then
+                        ( model
+                        , Cmd.batch
+                            [ generateBoard position state.difficulty
+                                |> Random.generate GotBoard
+                            , Task.perform GotStartTime Time.now
+                            ]
                         )
 
                     else
-                        ( Lose
-                            { board = newBoard
-                            , startTime = state.startTime
-                            , currentTime = state.currentTime
-                            , difficulty = state.difficulty
-                            , selectingDifficulty = state.selectingDifficulty
-                            }
-                        , Cmd.none
-                        )
+                        let
+                            ( newBoard, isOk ) =
+                                Mine.openBoard position state.board
+                        in
+                        if isOk then
+                            ( Running { state | board = newBoard }
+                            , if state.startTime == Nothing then
+                                Task.perform GotStartTime Time.now
+
+                              else
+                                Cmd.none
+                            )
+
+                        else
+                            ( Lose
+                                { board = newBoard
+                                , startTime = state.startTime
+                                , currentTime = state.currentTime
+                                , difficulty = state.difficulty
+                                , selectingDifficulty = state.selectingDifficulty
+                                }
+                            , Cmd.none
+                            )
 
                 _ ->
                     ( model, Cmd.none )
@@ -148,33 +162,37 @@ update msg model =
         FlagCell position ->
             case model of
                 Running state ->
-                    let
-                        ( newBoard, isWin ) =
-                            Mine.flagCell position state.board
-                    in
-                    if isWin then
-                        ( Win
-                            { board = newBoard
-                            , startTime = state.startTime
-                            , currentTime = state.currentTime
-                            , difficulty = state.difficulty
-                            , selectingDifficulty = state.difficulty
-                            }
-                        , Cmd.none
-                        )
+                    if not state.hasRealBoard then
+                        ( model, Cmd.none )
 
                     else
-                        ( Running
-                            { state
-                                | board = newBoard
-                                , flag = Mine.countFlaggedCell newBoard
-                            }
-                        , if state.startTime == Nothing then
-                            Task.perform GotStartTime Time.now
+                        let
+                            ( newBoard, isWin ) =
+                                Mine.flagCell position state.board
+                        in
+                        if isWin then
+                            ( Win
+                                { board = newBoard
+                                , startTime = state.startTime
+                                , currentTime = state.currentTime
+                                , difficulty = state.difficulty
+                                , selectingDifficulty = state.difficulty
+                                }
+                            , Cmd.none
+                            )
 
-                          else
-                            Cmd.none
-                        )
+                        else
+                            ( Running
+                                { state
+                                    | board = newBoard
+                                    , flag = Mine.countFlaggedCell newBoard
+                                }
+                            , if state.startTime == Nothing then
+                                Task.perform GotStartTime Time.now
+
+                              else
+                                Cmd.none
+                            )
 
                 _ ->
                     ( model, Cmd.none )
@@ -205,40 +223,19 @@ update msg model =
 
         ReTry ->
             case model of
-                BeforeStart diff ->
-                    let
-                        ( x, y ) =
-                            getBoardSize diff
-                    in
-                    ( BeforeStart diff
-                    , Random.generate GotMines <| generateMinePosition x y (getMineNum diff)
-                    )
-
                 Running s ->
-                    let
-                        ( x, y ) =
-                            getBoardSize s.selectingDifficulty
-                    in
-                    ( BeforeStart s.selectingDifficulty
-                    , Random.generate GotMines <| generateMinePosition x y (getMineNum s.selectingDifficulty)
+                    ( makeInitialState s.selectingDifficulty
+                    , Cmd.none
                     )
 
                 Win s ->
-                    let
-                        ( x, y ) =
-                            getBoardSize s.selectingDifficulty
-                    in
-                    ( BeforeStart s.selectingDifficulty
-                    , Random.generate GotMines <| generateMinePosition x y (getMineNum s.selectingDifficulty)
+                    ( makeInitialState s.selectingDifficulty
+                    , Cmd.none
                     )
 
                 Lose s ->
-                    let
-                        ( x, y ) =
-                            getBoardSize s.selectingDifficulty
-                    in
-                    ( BeforeStart s.selectingDifficulty
-                    , Random.generate GotMines <| generateMinePosition x y (getMineNum s.selectingDifficulty)
+                    ( makeInitialState s.selectingDifficulty
+                    , Cmd.none
                     )
 
         GotCurrentTime t ->
@@ -251,9 +248,6 @@ update msg model =
 
         DifficultyChanged diff ->
             case model of
-                BeforeStart _ ->
-                    ( model, Cmd.none )
-
                 Running s ->
                     ( Running { s | selectingDifficulty = diff }, Cmd.none )
 
@@ -276,9 +270,6 @@ view model =
             board diff x y
     in
     case model of
-        BeforeStart _ ->
-            h1 [] [ text "before start" ]
-
         Running m ->
             let
                 mineNumber =
@@ -429,19 +420,45 @@ main =
         }
 
 
-generateMinePosition : Int -> Int -> Int -> Random.Generator (List Mine.Position)
-generateMinePosition xsize ysize mineNum =
+generateBoard : Mine.Position -> Difficulty -> Random.Generator Mine.Board
+generateBoard firstPosition diff =
     let
+        ( xsize, ysize ) =
+            getBoardSize diff
+
+        mineNum =
+            getMineNum diff
+
+        safePos =
+            Mine.getPositionsAroundCell firstPosition
+                |> (\area -> firstPosition :: area)
+                |> Set.fromList
+
         xpoint =
             Random.int 0 (xsize - 1)
 
         ypoint =
             Random.int 0 (ysize - 1)
 
-        position =
+        position : () -> Random.Generator Mine.Position
+        position _ =
             Random.map2 (\x y -> ( x, y )) xpoint ypoint
+                |> Random.andThen
+                    (\newPos ->
+                        if Set.member newPos safePos then
+                            position ()
+
+                        else
+                            Random.constant newPos
+                    )
     in
-    noOverlapRandomList position mineNum
+    noOverlapRandomList (position ()) mineNum
+        |> Random.map
+            (\mineList ->
+                Mine.makeBoard xsize ysize mineList
+                    |> Mine.openBoard firstPosition
+                    |> Tuple.first
+            )
 
 
 getBoardSize : Difficulty -> ( Int, Int )

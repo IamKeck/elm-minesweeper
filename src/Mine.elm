@@ -36,6 +36,24 @@ type alias IsWin =
     Bool
 
 
+makeFakeBoard : Int -> Int -> Board
+makeFakeBoard xSize ySize =
+    let
+        xList =
+            List.range 0 (xSize - 1)
+
+        yList =
+            List.range 0 (ySize - 1)
+
+        positionList =
+            listMap2 (\x y -> ( x, y )) xList yList
+
+        emptyCell =
+            Empty Closed
+    in
+    List.foldl (\position board -> Dict.insert position emptyCell board) Dict.empty positionList
+
+
 makeBoard : Int -> Int -> List Position -> Board
 makeBoard xSize ySize mines =
     let
@@ -167,12 +185,17 @@ flagCell pos board =
 
             Just c ->
                 case c of
-                    Mine _ ->
-                        let
-                            newBoard =
-                                Dict.insert pos (Mine MFlagged) board
-                        in
-                        ( newBoard, isWin newBoard )
+                    Mine state ->
+                        case state of
+                            MFlagged ->
+                                ( Dict.insert pos (Mine MClosed) board, False )
+
+                            _ ->
+                                let
+                                    newBoard =
+                                        Dict.insert pos (Mine MFlagged) board
+                                in
+                                ( newBoard, isWin newBoard )
 
                     Empty state ->
                         case state of
