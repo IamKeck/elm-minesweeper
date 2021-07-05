@@ -60,6 +60,11 @@ type alias Flags =
     ()
 
 
+type CellRenderMode
+    = RunningMode
+    | FailMode
+
+
 makeInitialState : Difficulty -> Model
 makeInitialState diff =
     let
@@ -261,13 +266,24 @@ update msg model =
 view : Model -> Html Msg
 view model =
     let
+        renderMode =
+            case model of
+                Running _ ->
+                    RunningMode
+
+                Win _ ->
+                    RunningMode
+
+                Lose _ ->
+                    FailMode
+
         b : Difficulty -> Mine.Board -> Html Msg
         b diff =
             let
                 ( x, y ) =
                     getBoardSize diff
             in
-            board diff x y
+            board renderMode diff x y
     in
     case model of
         Running m ->
@@ -320,8 +336,8 @@ view model =
                 ]
 
 
-board : Difficulty -> Int -> Int -> Mine.Board -> Html Msg
-board diff xsize ysize b =
+board : CellRenderMode -> Difficulty -> Int -> Int -> Mine.Board -> Html Msg
+board renderMode diff xsize ysize b =
     let
         xs =
             List.range 0 (xsize - 1)
@@ -331,6 +347,14 @@ board diff xsize ysize b =
 
         positions =
             List.concatMap (\y -> List.map (\x -> ( x, y )) xs) ys
+
+        renderCell =
+            case renderMode of
+                RunningMode ->
+                    renderCellRunning
+
+                FailMode ->
+                    renderCellFailed
 
         render pos =
             Dict.get pos b |> Maybe.withDefault (Mine.Mine Mine.MOpen) |> renderCell
@@ -365,8 +389,8 @@ board diff xsize ysize b =
         )
 
 
-renderCell : Mine.CellType -> Html Msg
-renderCell t =
+renderCellRunning : Mine.CellType -> Html Msg
+renderCellRunning t =
     case t of
         Mine.Mine s ->
             case s of
@@ -393,6 +417,55 @@ renderCell t =
 
                 Mine.Flagged ->
                     span [] [ text "🏁" ]
+
+                Mine.Closed ->
+                    span [] []
+
+
+renderCellFailed : Mine.CellType -> Html Msg
+renderCellFailed t =
+    case t of
+        Mine.Mine s ->
+            case s of
+                Mine.MClosed ->
+                    span [] [ text "💣" ]
+
+                Mine.MOpen ->
+                    span [] [ text "💣" ]
+
+                Mine.MFlagged ->
+                    span [] [ text "🏁" ]
+
+        Mine.Empty s ->
+            case s of
+                Mine.Opened 0 ->
+                    span [] []
+
+                Mine.Opened num ->
+                    let
+                        nums =
+                            String.fromInt num
+                    in
+                    span [ HA.class <| "openCell-" ++ nums ] [ text nums ]
+
+                Mine.Flagged ->
+                    div
+                        [ HA.style "position" "relative"
+                        , HA.style "height" "100%"
+                        ]
+                        [ span
+                            [ HA.style "line-height" "2em"
+                            ]
+                            [ text "🏁" ]
+                        , span
+                            [ HA.style "position" "absolute"
+                            , HA.style "font-size" "2em"
+                            , HA.style "bottom" "0"
+                            , HA.style "left" "0"
+                            , HA.style "color" "red"
+                            ]
+                            [ text "☓" ]
+                        ]
 
                 Mine.Closed ->
                     span [] []
